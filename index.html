@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Mini FIFA Level 4</title>
+<style>
+body { margin:0; overflow:hidden; background:#0b6623; touch-action:none; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// GAME STATE
+let gameState = "menu";
+
+// Spieler
+function createPlayer(x,y,color){
+  return {
+    x,y,color,
+    r:20,
+    legAngle:0,
+    moving:false
+  }
+}
+
+let player = createPlayer(150,300,"blue");
+let enemy = createPlayer(canvas.width-150,300,"red");
+
+// Torwarte
+let keeper1 = {x:40, y:canvas.height/2};
+let keeper2 = {x:canvas.width-40, y:canvas.height/2};
+
+// Ball
+let ball = {x:canvas.width/2, y:canvas.height/2, dx:0, dy:0, spin:0};
+
+let playerHasBall=false;
+let enemyHasBall=false;
+
+let scoreP=0, scoreE=0;
+let goalTimer=0;
+
+// Controls
+let runTouch=null, shootTouch=null, stealTouch=null;
+let runStart=null, shootStart=null;
+let aimX=0, aimY=0, power=0;
+
+// TOUCH
+canvas.addEventListener("touchstart", e=>{
+  if(gameState==="menu"){
+    gameState="game";
+    return;
+  }
+
+  for(let t of e.touches){
+    if(t.clientX < 150){
+      runTouch=t;
+      runStart={x:t.clientX,y:t.clientY};
+    }
+    else if(t.clientX > canvas.width-150){
+      shootTouch=t;
+      shootStart={x:t.clientX,y:t.clientY};
+      power=0;
+    }
+    else if(t.clientX < 300){
+      stealTouch=t;
+    }
+  }
+});
+
+canvas.addEventListener("touchmove", e=>{
+  for(let t of e.touches){
+
+    if(runTouch && t.identifier===runTouch.identifier){
+      let dx=t.clientX-runStart.x;
+      let dy=t.clientY-runStart.y;
+      player.x+=dx*0.05;
+      player.y+=dy*0.05;
+      player.moving=true;
+    }
+
+    if(shootTouch && t.identifier===shootTouch.identifier){
+      let dx=t.clientX-shootStart.x;
+      let dy=t.clientY-shootStart.y;
+      aimX=player.x+dx;
+      aimY=player.y+dy;
+      power+=0.3;
+      if(power>15) power=15;
+      ball.spin = dx*0.01;
+    }
+
+    if(stealTouch){
+      let dist=Math.hypot(enemy.x-player.x, enemy.y-player.y);
+      if(dist<60){
+        playerHasBall=true;
+        enemyHasBall=false;
+      }
+    }
+  }
+});
+
+canvas.addEventListener("touchend", ()=>{
+  if(shootTouch && playerHasBall){
+    let dx=aimX-player.x;
+    let dy=aimY-player.y;
+    let len=Math.hypot(dx,dy);
+
+    ball.dx=(dx/len)*power;
+    ball.dy=(dy/len)*power;
+
+    playerHasBall=false;
+    power=0;
+  }
+
+  player.moving=false;
+  runTouch=null;
+  shootTouch=null;
+  stealTouch=null;
+});
+
+// RESET
+function reset(){
+  ball.x=canvas.width/2;
+  ball.y=canvas.height/2;
+  ball.dx=0;
+  ball.dy=0;
+  ball.spin=0;
+
+  player.x=150;
+  enemy.x=canvas.width-150;
+
+  playerHasBall=false;
+  enemyHasBall=false;
+
+  goalTimer=60;
+}
+
+// UPDATE
+function update(){
+
+  // Gegner KI
+  let dx=ball.x-enemy.x;
+  let dy=ball.y-enemy.y;
+
+  enemy.x+=dx*0.015;
+  enemy.y+=dy*0.015;
+
+  let distE=Math.hypot(ball.x-enemy.x, ball.y-enemy.y);
+  if(distE<30){
+    enemyHasBall=true;
+    playerHasBall=false;
+  }
+
+  if(enemyHasBall && Math.random()<0.01){
+    ball.dx=-8;
+    ball.dy=(Math.random()-0.5)*6;
+    enemyHasBall=false;
+  }
+
+  // Keeper
+  keeper1.y+=(ball.y-keeper1.y)*0.1;
+  keeper2.y+=(ball.y-keeper2.y)*0.05;
+
+  // Ball Bewegung
+  if(playerHasBall){
+    ball.x=player.x+25;
+    ball.y=player.y;
+  }
+  else if(enemyHasBall){
+    ball.x=enemy.x-25;
+    ball.y=enemy.y;
+  }
+  else{
+    ball.x+=ball.dx;
+    ball.y+=ball.dy;
+
+    ball.dx+=ball.spin;
+    ball.spin*=0.98;
+
+    ball.dx*=0.99;
+    ball.dy*=0.99;
+  }
+
+  let goalTop=canvas.height/2-80;
+  let goalBottom=canvas.height/2+80;
+
+  // Wände
+  if(ball.y<0){ ball.y=0; ball.dy*=-1; }
+  if(ball.y>canvas.height){ ball.y=canvas.height; ball.dy*=-1; }
+
+  if(ball.x<0){
+    if(ball.y>goalTop && ball.y<goalBottom){
+      scoreE++;
+      reset();
+    } else {
+      ball.x=0;
+      ball.dx*=-1;
+    }
+  }
+
+  if(ball.x>canvas.width){
+    if(ball.y>goalTop && ball.y<goalBottom){
+      scoreP++;
+      reset();
+    } else {
+      ball.x=canvas.width;
+      ball.dx*=-1;
+    }
+  }
+
+  // Spieler Animation
+  if(player.moving){
+    player.legAngle += 0.2;
+  }
+
+  if(goalTimer>0) goalTimer--;
+}
+
+// DRAW PLAYER MIT BEINEN
+function drawPlayer(p){
+  ctx.fillStyle=p.color;
+
+  // Körper
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,20,0,Math.PI*2);
+  ctx.fill();
+
+  // Beine
+  ctx.strokeStyle="black";
+  ctx.beginPath();
+  ctx.moveTo(p.x,p.y);
+
+  let legX = Math.sin(p.legAngle)*20;
+  let legY = Math.cos(p.legAngle)*20;
+
+  ctx.lineTo(p.x+legX,p.y+legY);
+  ctx.stroke();
+}
+
+// DRAW
+function draw(){
+
+  if(gameState==="menu"){
+    ctx.fillStyle="white";
+    ctx.font="50px Arial";
+    ctx.fillText("MINI FIFA", canvas.width/2-120, canvas.height/2);
+    ctx.font="30px Arial";
+    ctx.fillText("TIPPE ZUM STARTEN", canvas.width/2-150, canvas.height/2+50);
+    return;
+  }
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // Feld
+  ctx.strokeStyle="white";
+
+  // Mittellinie
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2,0);
+  ctx.lineTo(canvas.width/2,canvas.height);
+  ctx.stroke();
+
+  // Kreis
+  ctx.beginPath();
+  ctx.arc(canvas.width/2,canvas.height/2,70,0,Math.PI*2);
+  ctx.stroke();
+
+  // Strafraum
+  ctx.strokeRect(0, canvas.height/2-120, 100,240);
+  ctx.strokeRect(canvas.width-100, canvas.height/2-120, 100,240);
+
+  // Tore
+  ctx.fillRect(0, canvas.height/2-80, 10,160);
+  ctx.fillRect(canvas.width-10, canvas.height/2-80, 10,160);
+
+  // Spieler
+  drawPlayer(player);
+  drawPlayer(enemy);
+
+  // Keeper
+  ctx.fillStyle="yellow";
+  ctx.beginPath();
+  ctx.arc(keeper1.x,keeper1.y,18,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(keeper2.x,keeper2.y,18,0,Math.PI*2);
+  ctx.fill();
+
+  // Ball
+  ctx.fillStyle="white";
+  ctx.beginPath();
+  ctx.arc(ball.x,ball.y,12,0,Math.PI*2);
+  ctx.fill();
+
+  // Score
+  ctx.fillStyle="white";
+  ctx.font="30px Arial";
+  ctx.fillText(scoreP+" : "+scoreE, canvas.width/2-30,40);
+
+  // Buttons
+  ctx.fillText("RUN",20,50);
+  ctx.fillText("STEAL",150,50);
+  ctx.fillText("SHOOT",canvas.width-150,50);
+}
+
+// LOOP
+function loop(){
+  if(gameState==="game"){
+    update();
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
